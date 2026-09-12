@@ -80,11 +80,6 @@ jobs:
 
           FILE="$PROJECT_DIR/app/build.gradle"
 
-          if [ ! -f "$FILE" ]; then
-            echo "ERROR: app/build.gradle not found"
-            exit 1
-          fi
-
           python3 - "$FILE" <<'PY'
           import sys
 
@@ -100,9 +95,6 @@ jobs:
 
           brace_start = text.find("{", start)
 
-          if brace_start == -1:
-              raise SystemExit("ERROR: buildTypes opening brace not found")
-
           depth = 0
           end = -1
 
@@ -116,11 +108,12 @@ jobs:
                       break
 
           if end == -1:
-              raise SystemExit("ERROR: buildTypes closing brace not found")
+              raise SystemExit("ERROR: buildTypes block incomplete")
 
           replacement = """buildTypes {
               release {
                   minifyEnabled false
+                  signingConfig signingConfigs.debug
                   proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
               }
 
@@ -134,13 +127,10 @@ jobs:
           with open(path, "w", encoding="utf-8") as f:
               f.write(text)
 
-          print("buildTypes block completely replaced.")
+          print("Release signing configuration added.")
           PY
 
-          echo "===== CHECK build.gradle ====="
-          sed -n '1,80p' "$FILE"
-
-      - name: Build RELEASE APK
+      - name: Build SIGNED RELEASE APK
         shell: bash
         run: |
           set -e
@@ -154,9 +144,38 @@ jobs:
             gradle --no-daemon clean assembleRelease
           fi
 
-      - name: Upload RELEASE APK
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK=$(find "$PROJECT_DIR/app/build/outputs/apk/release" \
+            -type f -name "*.apk" -print -quit)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK not found"
+            exit 1
+          fi
+
+          echo "APK created:"
+          ls -lh "$APK"
+
+          echo "Checking APK signature..."
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          set -e
+
+          APK=$(find "$PROJECT_DIR/app/build/outputs/apk/release" \
+            -type f -name "*.apk" -print -quit)
+
+          cp "$APK" "$PROJECT_DIR/app/build/outputs/apk/release/DHS-Partner-v8.20.8-SIGNED.apk"
+
+      - name: Upload SIGNED APK
         uses: actions/upload-artifact@v4
         with:
-          name: DHS-Partner-v8.20.8-RELEASE
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
+          name: DHS-Partner-v8.20.8-SIGNED
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/DHS-Partner-v8.20.8-SIGNED.apk
           if-no-files-found: error
