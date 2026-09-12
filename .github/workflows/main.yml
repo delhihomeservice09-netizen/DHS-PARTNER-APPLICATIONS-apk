@@ -50,7 +50,6 @@ jobs:
           mkdir -p build-src
 
           unzip -q "$ZIP_FILE" -d build-src
-
           chmod -R u+rwX build-src
 
           echo "ZIP extracted successfully."
@@ -73,6 +72,58 @@ jobs:
 
           echo "Android project: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Fix Android build.gradle
+        shell: bash
+        run: |
+          set -e
+
+          FILE="$PROJECT_DIR/app/build.gradle"
+
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: app/build.gradle not found"
+            exit 1
+          fi
+
+          python3 - "$FILE" <<'PY'
+          import sys
+          import re
+
+          path = sys.argv[1]
+
+          with open(path, "r", encoding="utf-8") as f:
+              text = f.read()
+
+          # Replace the broken one-line buildTypes block
+          # with a correctly separated release/debug block.
+          pattern = r'buildTypes\s*\{.*?\n?\s*\}'
+
+          replacement = '''buildTypes {
+              release {
+                  minifyEnabled false
+                  proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+              }
+
+              debug {
+                  minifyEnabled false
+              }
+          }'''
+
+          match = re.search(pattern, text, re.S)
+
+          if match:
+              text = text[:match.start()] + replacement + text[match.end():]
+          else:
+              raise SystemExit("ERROR: buildTypes block not found")
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(text)
+
+          print("buildTypes fixed successfully.")
+          PY
+
+          echo "----- FINAL buildTypes -----"
+          grep -A12 -B2 "buildTypes" "$FILE"
 
       - name: Build RELEASE APK
         shell: bash
