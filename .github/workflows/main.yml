@@ -1,0 +1,96 @@
+name: DHS Partner Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Find ZIP
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found"
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+
+      - name: Extract ZIP
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf build-src
+          mkdir -p build-src
+
+          unzip -q "$ZIP_FILE" -d build-src
+
+          chmod -R u+rwX build-src
+
+          echo "ZIP extracted successfully."
+
+      - name: Locate Android Project
+        shell: bash
+        run: |
+          set -e
+
+          SETTINGS=$(find build-src -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: Android project not found"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "Android project: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Build RELEASE APK
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon clean assembleRelease
+          else
+            gradle --no-daemon clean assembleRelease
+          fi
+
+      - name: Upload RELEASE APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DHS-Partner-v8.20.8-RELEASE
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
