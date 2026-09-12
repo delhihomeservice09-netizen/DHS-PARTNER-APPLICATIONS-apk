@@ -87,18 +87,38 @@ jobs:
 
           python3 - "$FILE" <<'PY'
           import sys
-          import re
 
           path = sys.argv[1]
 
           with open(path, "r", encoding="utf-8") as f:
               text = f.read()
 
-          # Replace the broken one-line buildTypes block
-          # with a correctly separated release/debug block.
-          pattern = r'buildTypes\s*\{.*?\n?\s*\}'
+          start = text.find("buildTypes")
 
-          replacement = '''buildTypes {
+          if start == -1:
+              raise SystemExit("ERROR: buildTypes block not found")
+
+          brace_start = text.find("{", start)
+
+          if brace_start == -1:
+              raise SystemExit("ERROR: buildTypes opening brace not found")
+
+          depth = 0
+          end = -1
+
+          for i in range(brace_start, len(text)):
+              if text[i] == "{":
+                  depth += 1
+              elif text[i] == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = i + 1
+                      break
+
+          if end == -1:
+              raise SystemExit("ERROR: buildTypes closing brace not found")
+
+          replacement = """buildTypes {
               release {
                   minifyEnabled false
                   proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -107,23 +127,18 @@ jobs:
               debug {
                   minifyEnabled false
               }
-          }'''
+          }"""
 
-          match = re.search(pattern, text, re.S)
-
-          if match:
-              text = text[:match.start()] + replacement + text[match.end():]
-          else:
-              raise SystemExit("ERROR: buildTypes block not found")
+          text = text[:start] + replacement + text[end:]
 
           with open(path, "w", encoding="utf-8") as f:
               f.write(text)
 
-          print("buildTypes fixed successfully.")
+          print("buildTypes block completely replaced.")
           PY
 
-          echo "----- FINAL buildTypes -----"
-          grep -A12 -B2 "buildTypes" "$FILE"
+          echo "===== CHECK build.gradle ====="
+          sed -n '1,80p' "$FILE"
 
       - name: Build RELEASE APK
         shell: bash
